@@ -4,6 +4,17 @@ Turn off the bloat on a slow Android TV or Fire TV over Wi-Fi, and swap in a sim
 
 The idea of using adb to switch off a TV's junk apps is not new, and this project was inspired by [Ansub/tv-detox](https://github.com/Ansub/tv-detox). No code was copied from it. Everything here was written from scratch.
 
+## Easiest way: no commands
+
+Turn on **USB debugging** and **Network debugging** on the TV (see "What you need" below) and note its IP address. Then pick one:
+
+- **From an Android phone:** download [tvcleanse-installer.apk](https://github.com/gblanchard77-beep/tv-cleanse/releases/download/installer-v1/tvcleanse-installer.apk) and open it. Allow installs from your browser when Android asks. Open **TV Cleanse Installer**, type the TV's IP, tap **Install home screen**, and press **OK** on the TV when it asks "Allow debugging?" (tick **Always allow**). **Remove it** puts the TV back.
+- **From a Windows PC:** download [TV-Cleanse-Windows.bat](https://github.com/gblanchard77-beep/tv-cleanse/blob/main/TV-Cleanse-Windows.bat) (the download icon, top right of the file) and double-click it. If Windows warns you, choose **More info**, then **Run anyway**. Type the TV's IP and follow the screen.
+
+Both do the same steps as `home-install` below, including the Google TV Home button helper. Phone and TV (or PC and TV) must be on the same Wi-Fi. When you are done, turn debugging off on the TV.
+
+Prefer the command line? Keep reading.
+
 ## Status
 
 The script has passed its tests against a simulated TV (`bash tests/run.sh`). The home screen (`home-install`, the Google TV Home button helper, Edit apps and moving apps) has been tested on two real TVs: TCL Google TVs on Android 11 and Android 14. The cleanup commands (`scan`, `disable`, `anim`, `undo`) have not been tried on a real TV yet. Treat the first run as a test, on a TV you can afford to reset.
