@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Fake adb for testing tvcleanse.sh without a TV. State lives in $MOCK_DIR.
+# Not part of the tool; tests only.
+D="${MOCK_DIR:?}"
+touch "$D/disabled" "$D/settings"
+[ -f "$D/packages" ] || cat > "$D/packages" <<'EOF'
+com.android.systemui
+com.google.android.gms
+com.tcl.setupwizard
+com.vendor.adsrow
+com.vendor.promos
+com.vendor.persistentthing
+com.example.homeapp
+com.vendor.weather
+EOF
+
+args=("$@")
+# strip "-s SERIAL"
+if [ "${args[0]:-}" = "-s" ]; then args=("${args[@]:2}"); fi
+case "${args[0]:-}" in
+  connect) echo "connected to ${args[1]:-}"; exit 0 ;;
+  disconnect) exit 0 ;;
+  get-state) [ -f "$D/offline" ] && { echo "error: device offline"; exit 1; }; echo device; exit 0 ;;
+  shell) ;;
+  *) exit 1 ;;
+esac
+set -- "${args[@]:1}"
+case "$1 ${2:-} ${3:-}" in
+  "pm list packages"*)
+    if [ "${4:-}" = "-d" ]; then
+      sed 's/^/package:/' "$D/disabled"
+    elif [ "${4:-}" = "-3" ]; then
+      echo "package:com.vendor.weather"
+    else
+      sed 's/^/package:/' "$D/packages"
+    fi ;;
+  "pm disable-user --user") echo "Package $5 new state: disabled-user"; echo "$5" >> "$D/disabled" ;;
+  "pm enable "*) grep -vx "$3" "$D/disabled" > "$D/disabled.n"; mv "$D/disabled.n" "$D/disabled" ;;
+  "cmd package resolve-activity") echo "priority=0"; echo "com.example.homeapp/.Main" ;;
+  "dumpsys package "*)
+    if [ "$3" = "com.vendor.persistentthing" ]; then echo "    flags=[ SYSTEM HAS_CODE PERSISTENT ]"; else echo "    flags=[ SYSTEM HAS_CODE ]"; fi ;;
+  "getprop ro.product.manufacturer "*) echo "TCL" ;;
+  "getprop ro.product.model "*) echo "55S451G" ;;
+  "getprop ro.build.version.release "*) echo "11" ;;
+  "getprop ro.build.version.sdk "*) echo "30" ;;
+  "cat /proc/meminfo "*) printf 'MemTotal:        1800000 kB\nMemFree: 100000 kB\nMemAvailable:    380000 kB\n' ;;
+  "settings get global") grep "^$4=" "$D/settings" | cut -d= -f2 || true ;;
+  "settings put global") grep -v "^$4=" "$D/settings" > "$D/settings.n"; echo "$4=$5" >> "$D/settings.n"; mv "$D/settings.n" "$D/settings" ;;
+  "settings delete global") grep -v "^$4=" "$D/settings" > "$D/settings.n"; mv "$D/settings.n" "$D/settings" ;;
+  *) ;;
+esac
+exit 0

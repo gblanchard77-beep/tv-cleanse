@@ -1,0 +1,259 @@
+#!/usr/bin/env bash
+# TV Cleanse: turn off bloat on an Android TV or Fire TV over adb, with an undo log.
+#
+# Usage: tvcleanse.sh <tv-ip-or-serial> <command> [args]
+#
+# Commands:
+#   info                 show make, model, Android version
+#   mem                  show free memory
+#   scan                 list every package with a state and a safety guard
+#   disable <pkg>...     turn packages off (never uninstalls), logged for undo
+#   anim off|on          turn system animations off or back on
+#   undo                 reverse everything in the log, newest first
+#   log                  show what has been changed
+#   finish               turn adb debugging off (best effort) and disconnect
+#
+# Nothing here uninstalls or deletes anything. `disable` uses
+# `pm disable-user --user 0`, which `pm enable` reverses.
+
+set -u
+
+LOG_DIR="${TVCLEANSE_HOME:-$HOME/.tvcleanse}"
+
+die() { echo "error: $*" >&2; exit 1; }
+
+command -v adb >/dev/null 2>&1 || die "adb not found. Install Android Platform Tools: https://developer.android.com/tools/releases/platform-tools"
+
+[ $# -ge 2 ] || { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+
+TARGET="$1"; CMD="$2"; shift 2
+
+# An IP with no port gets the standard adb port.
+case "$TARGET" in
+  *:*) SERIAL="$TARGET" ;;
+  *[!0-9.]*) SERIAL="$TARGET" ;;
+  *) SERIAL="$TARGET:5555" ;;
+esac
+
+mkdir -p "$LOG_DIR"
+LOG="$LOG_DIR/$(printf '%s' "$SERIAL" | tr -c 'A-Za-z0-9._-' '_').log"
+touch "$LOG"
+
+# Run a command on the TV. Strips Windows line endings.
+tv() { adb -s "$SERIAL" shell "$@" 2>/dev/null | tr -d '\r'; }
+
+connect() {
+  case "$SERIAL" in
+    *:*) adb connect "$SERIAL" >/dev/null 2>&1 ;;
+  esac
+  local state
+  state="$(adb -s "$SERIAL" get-state 2>&1 | tr -d '\r')"
+  case "$state" in
+    device) return 0 ;;
+    *unauthorized*) die "TV has not approved this computer. Look at the TV and press Allow on the 'Allow debugging?' prompt, then run again." ;;
+    *) die "cannot reach $SERIAL ($state). Same Wi-Fi? USB/Network debugging on?" ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# Safety guard. Anything matching is refused. This errs on the side of refusing.
+# ---------------------------------------------------------------------------
+
+# Package-name prefixes that are core to Android and Google services.
+never_prefix() {
+  case "$1" in
+    android|android.*) return 0 ;;
+    com.android.*) return 0 ;;
+    com.google.android.gms|com.google.android.gms.*) return 0 ;;
+    com.google.android.gsf|com.google.android.gsf.*) return 0 ;;
+    com.google.android.packageinstaller|com.google.android.permissioncontroller) return 0 ;;
+    com.google.android.inputmethod.*) return 0 ;;
+    com.amazon.tv.launcher|com.amazon.tv.settings|com.amazon.device.software.ota) return 0 ;;
+  esac
+  return 1
+}
+
+# Words in a package name that mean "this keeps the TV working".
+never_keyword() {
+  local lower
+  lower="$(printf '%s' "$1" | tr 'A-Z' 'a-z')"
+  case "$lower" in
+    *launcher*|*home*|*setup*|*provision*|*wizard*|*settings*|*ota*|*updater*|*update*) return 0 ;;
+    *wifi*|*wlan*|*network*|*bluetooth*|*tvinput*|*tvprovider*|*hdmi*|*cec*) return 0 ;;
+    *inputmethod*|*keyboard*|*.ime|*.ime.*|*remote*|*vending*|*systemui*) return 0 ;;
+  esac
+  return 1
+}
+
+# Echo the package that currently handles the Home button, if we can tell.
+home_package() {
+  tv cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME \
+    | tail -n 1 | sed 's|/.*||'
+}
+
+# Returns 0 and prints a reason if the package must not be disabled.
+guard_reason() {
+  local pkg="$1" flags home
+  if never_prefix "$pkg"; then echo "core Android/Google/home package"; return 0; fi
+  if never_keyword "$pkg"; then echo "name suggests it keeps the TV working"; return 0; fi
+  home="$(home_package)"
+  if [ -n "$home" ] && [ "$pkg" = "$home" ]; then echo "it is the current home screen"; return 0; fi
+  flags="$(tv dumpsys package "$pkg" | grep -m1 'flags=')"
+  case "$flags" in
+    *PERSISTENT*) echo "Android keeps it running (PERSISTENT)"; return 0 ;;
+  esac
+  return 1
+}
+
+package_exists() { tv pm list packages | sed 's/^package://' | grep -qx "$1"; }
+is_disabled()    { tv pm list packages -d | sed 's/^package://' | grep -qx "$1"; }
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+cmd_info() {
+  echo "maker:   $(tv getprop ro.product.manufacturer)"
+  echo "model:   $(tv getprop ro.product.model)"
+  echo "android: $(tv getprop ro.build.version.release) (sdk $(tv getprop ro.build.version.sdk))"
+  if [ "$(tv getprop ro.product.manufacturer | tr 'A-Z' 'a-z')" = "amazon" ] \
+     || tv pm list packages | grep -q 'package:com.amazon.tv.launcher'; then
+    echo "family:  Fire TV (Fire OS)"
+  else
+    echo "family:  Android TV / Google TV"
+  fi
+}
+
+cmd_mem() {
+  tv cat /proc/meminfo | awk '
+    /^MemTotal:/     {t=$2}
+    /^MemAvailable:/ {a=$2}
+    END {
+      if (t == "") { print "could not read memory"; exit 1 }
+      printf "total:     %d MB\n", t/1024
+      printf "available: %d MB\n", a/1024
+    }'
+}
+
+cmd_scan() {
+  local on off user home
+  on="$(tv pm list packages | sed 's/^package://' | sort)"
+  off="$(tv pm list packages -d | sed 's/^package://' | sort)"
+  user="$(tv pm list packages -3 | sed 's/^package://' | sort)"
+  home="$(home_package)"
+  printf '%-9s %-7s %-9s %s\n' STATE TYPE GUARD PACKAGE
+  local pkg state type guard
+  while IFS= read -r pkg; do
+    [ -n "$pkg" ] || continue
+    state=on;   printf '%s\n' "$off"  | grep -qx "$pkg" && state=off
+    type=system; printf '%s\n' "$user" | grep -qx "$pkg" && type=user
+    guard=ok
+    if never_prefix "$pkg" || never_keyword "$pkg" || [ "$pkg" = "$home" ]; then guard=BLOCKED; fi
+    printf '%-9s %-7s %-9s %s\n' "$state" "$type" "$guard" "$pkg"
+  done <<EOF
+$on
+EOF
+  echo
+  echo "BLOCKED = this tool will refuse to disable it. 'ok' only means the quick checks passed;"
+  echo "'disable' also checks the PERSISTENT flag. Look up anything you do not recognise first."
+}
+
+cmd_disable() {
+  [ $# -ge 1 ] || die "give at least one package name"
+  local pkg reason failed=0
+  for pkg in "$@"; do
+    if ! package_exists "$pkg"; then echo "skip   $pkg: not installed"; failed=1; continue; fi
+    if is_disabled "$pkg"; then echo "skip   $pkg: already off"; continue; fi
+    if reason="$(guard_reason "$pkg")"; then echo "REFUSE $pkg: $reason"; failed=1; continue; fi
+    tv pm disable-user --user 0 "$pkg" >/dev/null
+    if is_disabled "$pkg"; then
+      printf 'disable %s %s\n' "$pkg" "$(date +%s)" >> "$LOG"
+      echo "off    $pkg"
+      sleep 1
+      if [ "$(adb -s "$SERIAL" get-state 2>/dev/null | tr -d '\r')" != "device" ]; then
+        echo "WARNING: TV stopped answering after turning off $pkg. Undo it: $0 $TARGET undo" >&2
+        exit 3
+      fi
+    else
+      echo "FAILED $pkg: TV did not report it as off"; failed=1
+    fi
+  done
+  return $failed
+}
+
+ANIM_KEYS="window_animation_scale transition_animation_scale animator_duration_scale"
+
+cmd_anim() {
+  local mode="${1:-}" key old
+  case "$mode" in
+    off)
+      for key in $ANIM_KEYS; do
+        old="$(tv settings get global "$key")"
+        [ -n "$old" ] || old=null
+        printf 'anim %s %s\n' "$key" "$old" >> "$LOG"
+        tv settings put global "$key" 0
+      done
+      echo "animations off"
+      ;;
+    on)
+      for key in $ANIM_KEYS; do tv settings put global "$key" 1.0; done
+      echo "animations on"
+      ;;
+    *) die "usage: anim off|on" ;;
+  esac
+}
+
+cmd_log() { [ -s "$LOG" ] && cat "$LOG" || echo "nothing logged for $SERIAL"; }
+
+cmd_undo() {
+  [ -s "$LOG" ] || { echo "nothing to undo for $SERIAL"; return 0; }
+  local keep line kind a b rc=0
+  keep="$(mktemp)"
+  # Newest first.
+  tac "$LOG" 2>/dev/null > "$LOG.rev" || awk '{a[NR]=$0} END{for(i=NR;i>0;i--)print a[i]}' "$LOG" > "$LOG.rev"
+  while IFS= read -r line; do
+    kind="${line%% *}"; line="${line#* }"; a="${line%% *}"; b="${line#* }"
+    case "$kind" in
+      disable)
+        tv pm enable "$a" >/dev/null
+        if is_disabled "$a"; then
+          echo "FAILED to turn $a back on"; printf '%s %s %s\n' "$kind" "$a" "$b" >> "$keep"; rc=1
+        else
+          echo "on     $a"
+        fi ;;
+      anim)
+        if [ "$b" = "null" ]; then tv settings delete global "$a" >/dev/null; else tv settings put global "$a" "$b"; fi
+        echo "restored $a" ;;
+    esac
+  done < "$LOG.rev"
+  rm -f "$LOG.rev"
+  # Keep failures (restored to original order) so a later undo can retry them.
+  if [ -s "$keep" ]; then
+    tac "$keep" 2>/dev/null > "$LOG" || awk '{a[NR]=$0} END{for(i=NR;i>0;i--)print a[i]}' "$keep" > "$LOG"
+  else
+    : > "$LOG"
+  fi
+  rm -f "$keep"
+  return $rc
+}
+
+cmd_finish() {
+  echo "Turning USB debugging off (best effort). If the TV still shows it on, turn it off:"
+  echo "  Settings > Device Preferences > Developer options > USB debugging."
+  tv settings put global adb_enabled 0 >/dev/null
+  adb disconnect "$SERIAL" >/dev/null 2>&1
+  echo "disconnected"
+}
+
+connect
+case "$CMD" in
+  info)    cmd_info ;;
+  mem)     cmd_mem ;;
+  scan)    cmd_scan ;;
+  disable) cmd_disable "$@" ;;
+  anim)    cmd_anim "$@" ;;
+  undo)    cmd_undo ;;
+  log)     cmd_log ;;
+  finish)  cmd_finish ;;
+  *)       die "unknown command: $CMD" ;;
+esac
