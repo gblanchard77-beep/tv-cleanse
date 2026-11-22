@@ -292,6 +292,8 @@ helper_on() {
   tv settings put secure accessibility_enabled 1 >/dev/null
 }
 
+helper_bound() { tv dumpsys accessibility | grep -q "Bound services:.*TV Cleanse Home button"; }
+
 helper_off() {
   local cur keep="" s
   cur="$(tv settings get secure enabled_accessibility_services)"
@@ -338,13 +340,21 @@ cmd_home_install() {
   elif [ "$now" = "$GOOGLE_TV_HOME_PKG" ]; then
     # Google TV's home always wins and must stay on. Use the helper instead of switching it off.
     echo "This is a Google TV. Its own home screen stays on; turning on the TV Cleanse Home button helper."
+    # Open TV Cleanse once first: Android 14 won't start the helper of an app that has never run.
+    tv am start -n "$HOME_PKG/.MainActivity" >/dev/null
+    sleep 2
     helper_on
     # Wait for Android to start the helper, then open TV Cleanse once. The helper reacts when
     # Google TV's screen opens, so Home does nothing while Google TV is already on screen.
-    local try
-    for try in 1 2 3 4 5 6 7 8 9 10; do
-      tv dumpsys accessibility | grep -q "Bound services:.*TV Cleanse Home button" && break
-      sleep 1
+    # Android can ignore the setting if it lands while the new app is still being registered
+    # (seen on Android 14), so if the helper hasn't started, switch it off and on once more.
+    local try round
+    for round in 1 2; do
+      for try in 1 2 3 4 5 6 7 8; do
+        helper_bound && break 2
+        sleep 1
+      done
+      [ "$round" = 1 ] && { helper_off; sleep 2; helper_on; }
     done
     tv am start -n "$HOME_PKG/.MainActivity" >/dev/null
     sleep 2

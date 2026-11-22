@@ -6,7 +6,7 @@ The idea of using adb to switch off a TV's junk apps is not new, and this projec
 
 ## Status
 
-The script has passed its tests against a simulated TV (`bash tests/run.sh`). The home screen (`home-install`, the Google TV Home button helper, Edit apps and moving apps) has been tested on one real TV: a TCL Google TV on Android 11. The cleanup commands (`scan`, `disable`, `anim`, `undo`) have not been tried on a real TV yet. Treat the first run as a test, on a TV you can afford to reset.
+The script has passed its tests against a simulated TV (`bash tests/run.sh`). The home screen (`home-install`, the Google TV Home button helper, Edit apps and moving apps) has been tested on two real TVs: TCL Google TVs on Android 11 and Android 14. The cleanup commands (`scan`, `disable`, `anim`, `undo`) have not been tried on a real TV yet. Treat the first run as a test, on a TV you can afford to reset.
 
 ## Risks
 
