@@ -1,0 +1,26 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.tvcleanse.installer'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'com.tvcleanse.installer'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    packaging {
+        resources { excludes += ['META-INF/*.kotlin_module', 'META-INF/versions/**', 'META-INF/{AL2.0,LGPL2.1}'] }
+    }
+}
+
+dependencies {
+    implementation 'dev.mobile:dadb:1.2.10'
+}

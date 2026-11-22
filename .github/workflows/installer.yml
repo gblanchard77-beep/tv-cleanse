@@ -1,0 +1,52 @@
+name: build-phone-installer
+
+on:
+  push:
+    paths:
+      - 'installer/**'
+      - '.github/workflows/installer.yml'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Publish the phone installer to this release tag (e.g. installer-v1). Leave empty to only build.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Build
+        working-directory: installer
+        run: gradle --no-daemon assembleDebug
+      - name: Name the APK
+        run: cp installer/app/build/outputs/apk/debug/app-debug.apk tvcleanse-installer.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tvcleanse-installer
+          path: tvcleanse-installer.apk
+      - name: Publish (separate from the home screen release, never marked latest)
+        if: github.event.inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.release_tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" tvcleanse-installer.apk --clobber
+          else
+            gh release create "$TAG" tvcleanse-installer.apk --title "Phone installer $TAG" \
+              --notes "TV Cleanse Installer for Android phones. Install this APK on your phone." \
+              --latest=false --target "$GITHUB_SHA"
+          fi
