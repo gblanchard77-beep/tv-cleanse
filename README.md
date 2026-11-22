@@ -21,6 +21,24 @@ The script has passed its tests against a simulated TV (`bash tests/run.sh`). Th
 - On Fire TV (menus vary): Settings → My Fire TV (or Device & Software) → About, select the device name 7 times, then in Developer options turn on **ADB debugging**.
 - The TV's IP address, from the TV's network or About screen.
 
+## Install the home screen, step by step
+
+1. **Get the tools.** On Windows, install [Git for Windows](https://git-scm.com/download/win) (it includes **Git Bash**) and [Android Platform Tools](https://developer.android.com/tools/releases/platform-tools) (adb). On a Mac: `brew install android-platform-tools`.
+2. **Turn on debugging on the TV** (see "What you need" above) and note its IP address.
+3. **Download TV Cleanse.** Open Git Bash (Windows) or Terminal (Mac):
+   ```
+   git clone https://github.com/gblanchard77-beep/tv-cleanse
+   cd tv-cleanse
+   ```
+   Or use **Code → Download ZIP** on GitHub, unzip it, and open Git Bash or Terminal in that folder.
+4. **Connect.** Run `./tvcleanse.sh <TV_IP> info`. The TV asks **"Allow debugging?"**: tick **Always allow**, press **Allow**, and run it again. It should show your TV's make and model.
+5. **Install.** Run `./tvcleanse.sh <TV_IP> home-install`. It downloads the latest release, checks its checksum, installs it and makes it your Home screen. On Google TV it also turns on the TV Cleanse Home button helper (see below).
+6. **Check.** Press **Home** on the remote. You should see the TV Cleanse clock and your apps.
+7. **Make it yours.** Use **+ Edit apps** at the end of the grid to show or hide apps. Hold **OK** on an app to move it.
+8. **Finish.** Run `./tvcleanse.sh <TV_IP> finish`, then check on the TV that **USB debugging** (and Network debugging) is off.
+
+To remove it: `./tvcleanse.sh <TV_IP> home-remove`. The TV's own home screen comes back.
+
 ## Use it
 
 ```
