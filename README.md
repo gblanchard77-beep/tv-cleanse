@@ -6,7 +6,7 @@ The idea of using adb to switch off a TV's junk apps is not new, and this projec
 
 ## Status
 
-The script has passed its tests against a simulated TV (`bash tests/run.sh`). Neither the script nor the home screen app has been confirmed on a real TV yet. Treat the first run as a test, on a TV you can afford to reset.
+The script has passed its tests against a simulated TV (`bash tests/run.sh`). The home screen (`home-install`, the Google TV Home button helper, Edit apps and moving apps) has been tested on one real TV: a TCL Google TV on Android 11. The cleanup commands (`scan`, `disable`, `anim`, `undo`) have not been tried on a real TV yet. Treat the first run as a test, on a TV you can afford to reset.
 
 ## Risks
 
@@ -41,12 +41,28 @@ The log lives in `~/.tvcleanse/`. If an undo step fails, it stays in the log so 
 
 ## The home screen
 
-A small Java app (`launcher/`, no libraries): a big clock, one row with your apps, one row with HDMI inputs, the Play Store and Settings. It reads the app list from the TV, so apps you turn off disappear from it.
+A small Java app (`launcher/`, no libraries): a clock with AM/PM, a grid of your apps using each app's own TV banner, your HDMI inputs, and a Settings button. It reads the app list from the TV, so apps you turn off disappear from it.
 
+- **Choose your apps:** the **+ Edit apps** tile at the end of the grid lists every app. Press OK to show or hide one. New apps show up automatically.
+- **Move apps:** hold OK on an app until it's outlined in blue, move it with the arrows, then press OK. The order is saved on the TV.
 - `home-install` downloads the APK from this repo's releases, **checks its SHA-256 checksum**, installs it and makes it the default home screen. It does **not** disable the TV's own home screen. That's the step that left other TVs stuck.
 - `home-remove` uninstalls it, and the TV's own home screen comes back. `undo` does this too.
+
+### Google TV
+
+Google TV's own home screen always wins the Home button, and switching it off can leave the TV stuck restarting (it can also hand Home to the setup app, which can't be switched off safely). So on Google TV, `home-install` turns on an optional accessibility helper, **TV Cleanse Home button**, instead. The idea comes from [Ansub/tv-detox](https://github.com/Ansub/tv-detox); the code is our own.
+
+- When Google TV's home screen opens, the helper opens TV Cleanse over it, about 0.2 seconds later. You may see a quick flicker of Google TV.
+- It only receives "window changed" events from Google TV's home app. It can't read the screen or see key presses.
+- **Hold Back** on TV Cleanse to go to Google TV's home. It stays there until the TV restarts or you open TV Cleanse Home from the apps row.
+- If TV Cleanse fails to open 3 times in a row, the helper stops trying until it next opens.
+- Turn it off any time in **Settings > Accessibility > TV Cleanse Home button**. `home-remove` turns it off too.
+- If Google TV's home is already on screen, pressing Home again does nothing, because nothing "opens". Open TV Cleanse from the apps row once, and Home works from then on.
+
+### Building
+
 - GitHub builds the APK in `.github/workflows/build.yml` and attaches it to each release (a tag starting with `v`). To build it yourself: install JDK 17 and the Android SDK, set `ANDROID_HOME`, run `bash launcher/build.sh`, then `TVCLEANSE_APK=launcher/out/tvcleanse-home.apk ./tvcleanse.sh <TV_IP> home-install`.
-- Each build is signed with a fresh key. Installing a newer build over an older one replaces it cleanly.
+- Each build is signed with a fresh key unless you set `KEYSTORE` (and `KEYSTORE_PASS`). A build with a different key replaces the old one by uninstalling it first, which resets your app choices and switches the Google TV helper off (`home-install` turns it back on). Keep one keystore to update in place.
 - On Fire TV, Amazon has blocked custom home screens with updates. Expect `home-install` to install but not take over the Home button.
 
 ## Let Claude Code drive it

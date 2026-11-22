@@ -270,6 +270,44 @@ fetch_apk() {
   APK_PATH="$dir/tvcleanse-home.apk"
 }
 
+GOOGLE_TV_HOME_PKG="com.google.android.apps.tv.launcherx"
+HELPER="$HOME_PKG/.HomeRedirect"
+HELPER_LONG="$HOME_PKG/$HOME_PKG.HomeRedirect"
+
+# The app in front right now, like com.example/.Activity -> com.example
+front_package() {
+  tv dumpsys window | grep -m1 mCurrentFocus | grep -oE '[A-Za-z0-9_.]+/[A-Za-z0-9_.$]+' | head -n 1 | sed 's|/.*||'
+}
+
+# Turn the "TV Cleanse Home button" accessibility helper on or off, keeping any others.
+helper_on() {
+  local cur
+  cur="$(tv settings get secure enabled_accessibility_services)"
+  case "$cur" in null) cur="" ;; esac
+  case ":$cur:" in
+    *":$HELPER:"*|*":$HELPER_LONG:"*) ;;
+    *) cur="${cur:+$cur:}$HELPER" ;;
+  esac
+  tv settings put secure enabled_accessibility_services "$cur" >/dev/null
+  tv settings put secure accessibility_enabled 1 >/dev/null
+}
+
+helper_off() {
+  local cur keep="" s
+  cur="$(tv settings get secure enabled_accessibility_services)"
+  case ":$cur:" in *":$HELPER:"*|*":$HELPER_LONG:"*) ;; *) return 0 ;; esac
+  local IFS=:
+  for s in $cur; do
+    case "$s" in ""|null|"$HELPER"|"$HELPER_LONG") ;; *) keep="${keep:+$keep:}$s" ;; esac
+  done
+  if [ -n "$keep" ]; then
+    tv settings put secure enabled_accessibility_services "$keep" >/dev/null
+  else
+    tv settings delete secure enabled_accessibility_services >/dev/null
+    tv settings put secure accessibility_enabled 0 >/dev/null
+  fi
+}
+
 cmd_home_install() {
   local out sdk now
   fetch_apk
@@ -297,6 +335,32 @@ cmd_home_install() {
   now="$(home_package)"
   if [ "$now" = "$HOME_PKG" ]; then
     echo "TV Cleanse home screen is now the default."
+  elif [ "$now" = "$GOOGLE_TV_HOME_PKG" ]; then
+    # Google TV's home always wins and must stay on. Use the helper instead of switching it off.
+    echo "This is a Google TV. Its own home screen stays on; turning on the TV Cleanse Home button helper."
+    helper_on
+    # Wait for Android to start the helper, then open TV Cleanse once. The helper reacts when
+    # Google TV's screen opens, so Home does nothing while Google TV is already on screen.
+    local try
+    for try in 1 2 3 4 5 6 7 8 9 10; do
+      tv dumpsys accessibility | grep -q "Bound services:.*TV Cleanse Home button" && break
+      sleep 1
+    done
+    tv am start -n "$HOME_PKG/.MainActivity" >/dev/null
+    sleep 2
+    tv input keyevent KEYCODE_HOME >/dev/null
+    local front=""
+    for try in 1 2 3 4 5 6; do
+      sleep 1
+      front="$(front_package)"
+      [ "$front" = "$HOME_PKG" ] && break
+    done
+    if [ "$front" = "$HOME_PKG" ]; then
+      echo "Home now opens TV Cleanse. Hold Back on it to reach Google TV's home."
+    else
+      echo "The helper is on, but Home still showed: ${front:-nothing yet}."
+      echo "On the TV, check Settings > Accessibility > TV Cleanse Home button is on."
+    fi
   else
     echo "Installed, but the Home button still opens: ${now:-unknown}."
     echo "Press Home on the remote; if the TV asks which home screen to use, choose TV Cleanse Home."
@@ -305,6 +369,7 @@ cmd_home_install() {
 }
 
 cmd_home_remove() {
+  helper_off
   tv cmd role remove-role-holder --user 0 android.app.role.HOME "$HOME_PKG" >/dev/null 2>&1
   adb -s "$SERIAL" uninstall "$HOME_PKG" >/dev/null 2>&1
   if package_exists "$HOME_PKG"; then

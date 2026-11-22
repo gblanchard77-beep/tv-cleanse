@@ -25,10 +25,10 @@ mkdir -p "$OUT/classes" "$OUT/dex"
 "$BT/aapt2" link -o "$OUT/base.apk" -I "$JAR" \
   --manifest AndroidManifest.xml \
   --min-sdk-version 21 --target-sdk-version 30 \
-  --version-code 1 --version-name 1.0.0 \
+  --version-code 5 --version-name 1.4.0 \
   "$OUT/res.zip"
 
-javac -source 8 -target 8 -Xlint:-options -classpath "$JAR" -d "$OUT/classes" \
+javac -encoding UTF-8 -source 8 -target 8 -Xlint:-options -classpath "$JAR" -d "$OUT/classes" \
   $(find src -name '*.java')
 
 "$BT/d8" --lib "$JAR" --min-api 21 --output "$OUT/dex" \

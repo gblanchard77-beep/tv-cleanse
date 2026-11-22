@@ -13,7 +13,7 @@
     <application
         android:label="TV Cleanse Home"
         android:icon="@drawable/icon"
-        android:banner="@drawable/icon"
+        android:banner="@drawable/banner"
         android:allowBackup="false">
 
         <activity
@@ -32,5 +32,27 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- "Edit apps": choose which apps show on the home screen. -->
+        <activity
+            android:name=".ChooseAppsActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen" />
+
+        <!-- Optional, for Google TV: makes Home open this screen while Google TV's own stays on.
+             Turned on by `tvcleanse.sh home-install`, or Settings > Accessibility. -->
+        <service
+            android:name=".HomeRedirect"
+            android:label="TV Cleanse Home button"
+            android:exported="true"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/home_redirect" />
+        </service>
     </application>
 </manifest>
