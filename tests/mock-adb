@@ -21,6 +21,10 @@ case "${args[0]:-}" in
   connect) echo "connected to ${args[1]:-}"; exit 0 ;;
   disconnect) exit 0 ;;
   get-state) [ -f "$D/offline" ] && { echo "error: device offline"; exit 1; }; echo device; exit 0 ;;
+  install) f="${args[@]: -1}"; [ -f "$f" ] || { echo "Failure [no file]"; exit 1; }
+           echo "com.tvcleanse.home" >> "$D/packages"; echo Success; exit 0 ;;
+  uninstall) grep -vx "${args[1]}" "$D/packages" > "$D/packages.n"; mv "$D/packages.n" "$D/packages"
+             rm -f "$D/homepkg"; echo Success; exit 0 ;;
   shell) ;;
   *) exit 1 ;;
 esac
@@ -36,7 +40,10 @@ case "$1 ${2:-} ${3:-}" in
     fi ;;
   "pm disable-user --user") echo "Package $5 new state: disabled-user"; echo "$5" >> "$D/disabled" ;;
   "pm enable "*) grep -vx "$3" "$D/disabled" > "$D/disabled.n"; mv "$D/disabled.n" "$D/disabled" ;;
-  "cmd package resolve-activity") echo "priority=0"; echo "com.example.homeapp/.Main" ;;
+  "cmd package resolve-activity") echo "priority=0"
+      if [ -f "$D/homepkg" ]; then echo "$(cat "$D/homepkg")/.MainActivity"; else echo "com.example.homeapp/.Main"; fi ;;
+  "cmd role add-role-holder") echo "${7}" > "$D/homepkg" ;;
+  "cmd role remove-role-holder") rm -f "$D/homepkg" ;;
   "dumpsys package "*)
     if [ "$3" = "com.vendor.persistentthing" ]; then echo "    flags=[ SYSTEM HAS_CODE PERSISTENT ]"; else echo "    flags=[ SYSTEM HAS_CODE ]"; fi ;;
   "getprop ro.product.manufacturer "*) echo "TCL" ;;

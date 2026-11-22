@@ -1,12 +1,12 @@
 # TV Cleanse
 
-Turn off the bloat on a slow Android TV or Fire TV over Wi-Fi. Every change is logged and reversible. Nothing is uninstalled.
+Turn off the bloat on a slow Android TV or Fire TV over Wi-Fi, and swap in a simple home screen: a clock, your apps, your HDMI inputs, no ads. Every change is logged and reversible. Nothing is uninstalled.
 
 The idea of using adb to switch off a TV's junk apps is not new, and this project was inspired by [Ansub/tv-detox](https://github.com/Ansub/tv-detox). No code was copied from it. Everything here was written from scratch.
 
 ## Status
 
-The script has passed its tests against a simulated TV (`bash tests/run.sh`). It has **not** yet been run on a real TV. Treat the first run as a test, on a TV you can afford to reset.
+The script has passed its tests against a simulated TV (`bash tests/run.sh`). Neither the script nor the home screen app has been confirmed on a real TV yet. Treat the first run as a test, on a TV you can afford to reset.
 
 ## Risks
 
@@ -29,6 +29,8 @@ The script has passed its tests against a simulated TV (`bash tests/run.sh`). It
 ./tvcleanse.sh <TV_IP> scan          # every package, with a safety guard column
 ./tvcleanse.sh <TV_IP> disable pkg1 pkg2
 ./tvcleanse.sh <TV_IP> anim off      # animations off
+./tvcleanse.sh <TV_IP> home-install  # install the TV Cleanse home screen
+./tvcleanse.sh <TV_IP> home-remove   # remove it
 ./tvcleanse.sh <TV_IP> undo          # reverse everything, newest first
 ./tvcleanse.sh <TV_IP> finish        # debugging off, disconnect
 ```
@@ -36,6 +38,16 @@ The script has passed its tests against a simulated TV (`bash tests/run.sh`). It
 The first time, the TV asks "Allow debugging?". Press **Allow**.
 
 The log lives in `~/.tvcleanse/`. If an undo step fails, it stays in the log so you can run `undo` again.
+
+## The home screen
+
+A small Java app (`launcher/`, no libraries): a big clock, one row with your apps, one row with HDMI inputs, the Play Store and Settings. It reads the app list from the TV, so apps you turn off disappear from it.
+
+- `home-install` downloads the APK from this repo's releases, **checks its SHA-256 checksum**, installs it and makes it the default home screen. It does **not** disable the TV's own home screen. That's the step that left other TVs stuck.
+- `home-remove` uninstalls it, and the TV's own home screen comes back. `undo` does this too.
+- GitHub builds the APK in `.github/workflows/build.yml` and attaches it to each release (a tag starting with `v`). To build it yourself: install JDK 17 and the Android SDK, set `ANDROID_HOME`, run `bash launcher/build.sh`, then `TVCLEANSE_APK=launcher/out/tvcleanse-home.apk ./tvcleanse.sh <TV_IP> home-install`.
+- Each build is signed with a fresh key. Installing a newer build over an older one replaces it cleanly.
+- On Fire TV, Amazon has blocked custom home screens with updates. Expect `home-install` to install but not take over the Home button.
 
 ## Let Claude Code drive it
 

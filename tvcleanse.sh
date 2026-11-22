@@ -9,6 +9,8 @@
 #   scan                 list every package with a state and a safety guard
 #   disable <pkg>...     turn packages off (never uninstalls), logged for undo
 #   anim off|on          turn system animations off or back on
+#   home-install         install the TV Cleanse home screen and make it the default
+#   home-remove          remove it (the TV's own home screen comes back)
 #   undo                 reverse everything in the log, newest first
 #   log                  show what has been changed
 #   finish               turn adb debugging off (best effort) and disconnect
@@ -221,6 +223,9 @@ cmd_undo() {
         else
           echo "on     $a"
         fi ;;
+      home)
+        if cmd_home_remove >/dev/null; then echo "removed home screen $a"; else
+          printf '%s %s %s\n' "$kind" "$a" "$b" >> "$keep"; rc=1; fi ;;
       anim)
         if [ "$b" = "null" ]; then tv settings delete global "$a" >/dev/null; else tv settings put global "$a" "$b"; fi
         echo "restored $a" ;;
@@ -245,6 +250,71 @@ cmd_finish() {
   echo "disconnected"
 }
 
+HOME_PKG="com.tvcleanse.home"
+RELEASE_URL="${TVCLEANSE_RELEASE_URL:-https://github.com/gblanchard77-beep/tv-cleanse/releases/latest/download}"
+
+# Get the APK: use TVCLEANSE_APK if set, otherwise download it and check its checksum.
+fetch_apk() {
+  if [ -n "${TVCLEANSE_APK:-}" ]; then
+    [ -f "$TVCLEANSE_APK" ] || die "TVCLEANSE_APK not found: $TVCLEANSE_APK"
+    APK_PATH="$TVCLEANSE_APK"; return 0
+  fi
+  command -v curl >/dev/null 2>&1 || die "curl not found (or build the APK yourself and set TVCLEANSE_APK)"
+  local dir; dir="$(mktemp -d)"
+  curl -fsSL -o "$dir/tvcleanse-home.apk" "$RELEASE_URL/tvcleanse-home.apk" \
+    || die "could not download the APK from $RELEASE_URL (no release yet? build it: see README)"
+  curl -fsSL -o "$dir/tvcleanse-home.apk.sha256" "$RELEASE_URL/tvcleanse-home.apk.sha256" \
+    || die "could not download the checksum file"
+  ( cd "$dir" && sha256sum -c tvcleanse-home.apk.sha256 >/dev/null 2>&1 ) \
+    || die "checksum did not match. Not installing."
+  APK_PATH="$dir/tvcleanse-home.apk"
+}
+
+cmd_home_install() {
+  local out sdk now
+  fetch_apk
+  out="$(adb -s "$SERIAL" install -r "$APK_PATH" 2>&1 | tr -d '\r')"
+  case "$out" in
+    *Success*) ;;
+    *INCOMPATIBLE*|*signatures*)
+      echo "An older copy is signed differently. Replacing it."
+      adb -s "$SERIAL" uninstall "$HOME_PKG" >/dev/null 2>&1
+      out="$(adb -s "$SERIAL" install "$APK_PATH" 2>&1 | tr -d '\r')"
+      case "$out" in *Success*) ;; *) die "install failed: $out" ;; esac ;;
+    *) die "install failed: $out" ;;
+  esac
+  printf 'home %s %s\n' "$HOME_PKG" "$(date +%s)" >> "$LOG"
+
+  # Make it the default home screen. The TV's own home screen is NOT disabled.
+  sdk="$(tv getprop ro.build.version.sdk)"
+  if [ "${sdk:-0}" -ge 29 ] 2>/dev/null; then
+    tv cmd role add-role-holder --user 0 android.app.role.HOME "$HOME_PKG" >/dev/null
+  else
+    tv cmd package set-home-activity "$HOME_PKG/.MainActivity" >/dev/null
+  fi
+  tv input keyevent KEYCODE_HOME >/dev/null
+  sleep 2
+  now="$(home_package)"
+  if [ "$now" = "$HOME_PKG" ]; then
+    echo "TV Cleanse home screen is now the default."
+  else
+    echo "Installed, but the Home button still opens: ${now:-unknown}."
+    echo "Press Home on the remote; if the TV asks which home screen to use, choose TV Cleanse Home."
+  fi
+  echo "The TV's own home screen is still installed. Undo: $0 $TARGET home-remove"
+}
+
+cmd_home_remove() {
+  tv cmd role remove-role-holder --user 0 android.app.role.HOME "$HOME_PKG" >/dev/null 2>&1
+  adb -s "$SERIAL" uninstall "$HOME_PKG" >/dev/null 2>&1
+  if package_exists "$HOME_PKG"; then
+    echo "FAILED to remove $HOME_PKG"; return 1
+  fi
+  grep -v "^home $HOME_PKG " "$LOG" > "$LOG.n"; mv "$LOG.n" "$LOG"
+  tv input keyevent KEYCODE_HOME >/dev/null
+  echo "removed. Home button now opens: $(home_package)"
+}
+
 connect
 case "$CMD" in
   info)    cmd_info ;;
@@ -253,6 +323,8 @@ case "$CMD" in
   disable) cmd_disable "$@" ;;
   anim)    cmd_anim "$@" ;;
   undo)    cmd_undo ;;
+  home-install) cmd_home_install ;;
+  home-remove)  cmd_home_remove ;;
   log)     cmd_log ;;
   finish)  cmd_finish ;;
   *)       die "unknown command: $CMD" ;;

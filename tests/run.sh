@@ -34,6 +34,16 @@ $T undo >/dev/null
 grep -q "window_animation_scale" "$MOCK_DIR/settings" && ! grep -q "window_animation_scale=0" "$MOCK_DIR/settings"; r=$?
 [ $r -eq 0 ] || ! grep -q "window_animation_scale=0" "$MOCK_DIR/settings";      check "undo restores animation" $?
 [ ! -s "$TVCLEANSE_HOME"/*.log ];                                               check "log empty after clean undo" $?
+# home screen install / remove
+echo "fake apk" > "$MOCK_DIR/fake.apk"
+out="$(TVCLEANSE_APK="$MOCK_DIR/fake.apk" $T home-install 2>&1)"
+echo "$out" | grep -q "now the default";                                        check "home-install makes it default" $?
+[ "$(cat "$MOCK_DIR/homepkg")" = "com.tvcleanse.home" ];                        check "home role set to our package" $?
+grep -qx "com.example.homeapp" "$MOCK_DIR/packages";                            check "stock home screen left alone" $?
+$T log | grep -q "^home com.tvcleanse.home";                                   check "home install is logged" $?
+$T undo >/dev/null
+! grep -qx "com.tvcleanse.home" "$MOCK_DIR/packages";                          check "undo removes our home screen" $?
+out="$(TVCLEANSE_RELEASE_URL=http://127.0.0.1:9 $T home-install 2>&1)"; [ $? -ne 0 ]; check "bad download fails, installs nothing" $?
 touch "$MOCK_DIR/offline"
 $T info >/dev/null 2>&1;                                                        [ $? -ne 0 ]; check "unreachable TV fails cleanly" $?
 echo; echo "$pass passed, $fail failed"; [ "$fail" -eq 0 ]
