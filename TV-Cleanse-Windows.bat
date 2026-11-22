@@ -94,17 +94,38 @@ for /f "tokens=* delims=" %%a in ("!SDK!") do set "SDK=%%a"
 "%ADB%" -s %TV% shell cmd role add-role-holder --user 0 android.app.role.HOME %PKG% >nul 2>&1
 
 rem Google TV always keeps its own Home button, so also switch on our helper.
+rem Android 14 needs the app opened once first.
+"%ADB%" -s %TV% shell am start -n %PKG%/.MainActivity >nul 2>&1
+timeout /t 2 /nobreak >nul
 set "CUR="
 for /f "tokens=*" %%a in ('"%ADB%" -s %TV% shell settings get secure enabled_accessibility_services') do set "CUR=%%a"
 set "CUR=!CUR: =!"
 if /i "!CUR!"=="null" set "CUR="
+set "NEW=!CUR!"
 echo !CUR! | findstr /c:"%PKG%" >nul
 if errorlevel 1 (
   if defined CUR (set "NEW=!CUR!:%PKG%/.HomeRedirect") else (set "NEW=%PKG%/.HomeRedirect")
-  "%ADB%" -s %TV% shell settings put secure enabled_accessibility_services !NEW! >nul
 )
+"%ADB%" -s %TV% shell settings put secure enabled_accessibility_services !NEW! >nul
 "%ADB%" -s %TV% shell settings put secure accessibility_enabled 1 >nul
-
+set /a r=0
+:chk
+set /a n=0
+:chk2
+"%ADB%" -s %TV% shell dumpsys accessibility | findstr /c:"TV Cleanse Home button" | findstr /c:"Bound services" >nul
+if not errorlevel 1 goto :bound
+set /a n+=1
+if %n% LSS 8 (timeout /t 1 /nobreak >nul & goto :chk2)
+set /a r+=1
+if %r% GEQ 2 goto :bound
+rem not started: switch off and on once more
+"%ADB%" -s %TV% shell settings put secure enabled_accessibility_services "!CUR!" >nul
+timeout /t 2 /nobreak >nul
+"%ADB%" -s %TV% shell settings put secure enabled_accessibility_services !NEW! >nul
+goto :chk
+:bound
+"%ADB%" -s %TV% shell am start -n %PKG%/.MainActivity >nul 2>&1
+timeout /t 2 /nobreak >nul
 "%ADB%" -s %TV% shell input keyevent KEYCODE_HOME >nul
 echo.
 echo  ===== DONE =====
